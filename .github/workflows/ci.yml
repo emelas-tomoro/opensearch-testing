@@ -28,9 +28,7 @@ jobs:
     - name: Set up OpenSearch
       uses: ankane/setup-opensearch@v1
       with:
-        version: '3.0.0'
-        port: 9200
-        security: true
+        opensearch-version: 3.0.0
         
     - name: Install dependencies
       run: |
