@@ -16,7 +16,7 @@ def opensearch_client():
         client = OpenSearch(
             hosts=[{'host': 'localhost', 'port': 9200}],
             http_auth=('admin', 'admin'),  # Default credentials for GitHub Actions OpenSearch
-            use_ssl=True,
+            use_ssl=False,  # Changed from True to False
             verify_certs=False,
             ssl_show_warn=False,
         )
