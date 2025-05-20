@@ -213,3 +213,111 @@ def test_opensearch_mapping_and_settings(opensearch_client):
     assert settings_result[index_name]["settings"]["index"]["number_of_shards"] == "1"
     assert settings_result[index_name]["settings"]["index"]["number_of_replicas"] == "0"
 
+
+def test_opensearch_complex_queries(opensearch_client):
+    """Test complex query scenarios including boolean queries, term matching, and range queries"""
+    index_name = "complex-query-test-index"
+    
+    # Create index with mapping for our test data
+    mapping = {
+        "mappings": {
+            "properties": {
+                "account_id": {"type": "long"},
+                "status": {"type": "keyword"},
+                "amount": {"type": "float"},
+                "created_at": {"type": "date"},
+                "tags": {"type": "keyword"}
+            }
+        }
+    }
+    
+    opensearch_client.indices.create(index=index_name, body=mapping)
+    
+    # Sample documents
+    docs = [
+        {
+            "account_id": 12927781653,
+            "status": "active",
+            "amount": 1000.50,
+            "created_at": "2024-01-01T00:00:00Z",
+            "tags": ["premium", "verified"]
+        },
+        {
+            "account_id": 12927781654,
+            "status": "inactive",
+            "amount": 500.75,
+            "created_at": "2024-01-02T00:00:00Z",
+            "tags": ["basic"]
+        },
+        {
+            "account_id": 12927781655,
+            "status": "active",
+            "amount": 2000.25,
+            "created_at": "2024-01-03T00:00:00Z",
+            "tags": ["premium", "vip"]
+        }
+    ]
+    
+    # Bulk index documents
+    bulk_data = []
+    for i, doc in enumerate(docs, 1):
+        bulk_data.extend([
+            {"index": {"_index": index_name, "_id": i}},
+            doc
+        ])
+    
+    opensearch_client.bulk(body=bulk_data)
+    opensearch_client.indices.refresh(index=index_name)
+    
+    # Test 1: Simple term query
+    term_query = {
+        "query": {
+            "term": {
+                "account_id": 12927781653
+            }
+        }
+    }
+    
+    result = opensearch_client.search(index=index_name, body=term_query)
+    assert result["hits"]["total"]["value"] == 1
+    assert result["hits"]["hits"][0]["_source"]["account_id"] == 12927781653
+    
+    # Test 2: Boolean query with multiple conditions
+    bool_query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"status": "active"}},
+                    {"range": {"amount": {"gte": 1000}}}
+                ],
+                "filter": [
+                    {"terms": {"tags": ["premium"]}}
+                ]
+            }
+        }
+    }
+    
+    result = opensearch_client.search(index=index_name, body=bool_query)
+    assert result["hits"]["total"]["value"] == 2
+    assert all(hit["_source"]["status"] == "active" for hit in result["hits"]["hits"])
+    assert all(hit["_source"]["amount"] >= 1000 for hit in result["hits"]["hits"])
+    assert all("premium" in hit["_source"]["tags"] for hit in result["hits"]["hits"])
+    
+    # Test 3: Date range query
+    date_query = {
+        "query": {
+            "range": {
+                "created_at": {
+                    "gte": "2024-01-02T00:00:00Z",
+                    "lte": "2024-01-03T00:00:00Z"
+                }
+            }
+        }
+    }
+    
+    result = opensearch_client.search(index=index_name, body=date_query)
+    assert result["hits"]["total"]["value"] == 2
+    assert all("2024-01-02" in hit["_source"]["created_at"] or 
+              "2024-01-03" in hit["_source"]["created_at"] 
+              for hit in result["hits"]["hits"])
+
