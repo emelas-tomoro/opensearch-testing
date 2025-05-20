@@ -46,4 +46,4 @@ jobs:
         OPENSEARCH_PORT: 9200
       run: |
         source .venv/bin/activate
-        pytest test_opensearch.py -v 
+        pytest tests/test_opensearch.py -v 
