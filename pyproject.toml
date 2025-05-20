@@ -1,0 +1,11 @@
+[project]
+name = "supercell"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "opensearch-py>=2.8.0",
+    "pytest>=8.3.5",
+    "testcontainers>=4.10.0",
+]
