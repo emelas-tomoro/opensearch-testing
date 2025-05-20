@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  deployment:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Set up OpenSearch
+      uses: ankane/setup-opensearch@v1
+      with:
+        version: '2.11.0'
+        port: 9200
+        security: true
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio pytest-cov
+        
+    - name: Run OpenSearch tests
+      env:
+        GITHUB_ACTIONS: "true"
+        OPENSEARCH_HOST: localhost
+        OPENSEARCH_PORT: 9200
+      run: |
+        pytest test_opensearch.py -v 
