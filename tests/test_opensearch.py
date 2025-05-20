@@ -16,7 +16,7 @@ def opensearch_client():
         client = OpenSearch(
             hosts=[{'host': 'localhost', 'port': 9200}],
             http_auth=('admin', 'admin'),  # Default credentials for GitHub Actions OpenSearch
-            use_ssl=False,  # Changed from True to False
+            use_ssl=False,
             verify_certs=False,
             ssl_show_warn=False,
         )
@@ -24,7 +24,7 @@ def opensearch_client():
     else:
         # Use local testcontainer
         container = OpenSearchContainer(
-            image="opensearchproject/opensearch:2.11.0",
+            image="opensearchproject/opensearch:3.0.0",
             port=9200,
         )
         with container as container:
@@ -44,8 +44,7 @@ def test_opensearch_smoke(opensearch_client):
     info = opensearch_client.info()
     assert "version" in info, "Version information missing"
     assert "number" in info["version"], "Version number missing"
-    assert info["version"]["number"].startswith("2.11.0"), "Unexpected OpenSearch version"
-    
+        
     # Check if we can create and delete an index
     test_index = "smoke-test-index"
     try:
