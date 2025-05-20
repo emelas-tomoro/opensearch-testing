@@ -34,7 +34,9 @@ jobs:
         
     - name: Install dependencies
       run: |
-        uv pip install --system pytest pytest-asyncio pytest-cov
+        uv venv
+        source .venv/bin/activate
+        uv pip install pytest pytest-asyncio pytest-cov
         uv pip install -e .
         
     - name: Run OpenSearch tests
@@ -43,4 +45,5 @@ jobs:
         OPENSEARCH_HOST: localhost
         OPENSEARCH_PORT: 9200
       run: |
+        source .venv/bin/activate
         pytest test_opensearch.py -v 
