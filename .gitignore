@@ -1,2 +1,4 @@
 *conftest_v1.py
 *.pyc
+notebooks/
+tests/__pycache__/

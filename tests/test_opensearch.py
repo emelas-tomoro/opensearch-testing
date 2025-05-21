@@ -4,6 +4,15 @@ import time
 import os
 from opensearchpy import OpenSearch
 
+import logging
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="session")
 def opensearch_client():
@@ -25,11 +34,20 @@ def opensearch_client():
         # Use local testcontainer
         container = OpenSearchContainer(
             image="opensearchproject/opensearch:3.0.0",
-            port=9200,
-        )
+            # port=9200,
+        )#.with_exposed_ports(9200).with_bind_ports(9200, 9200)
         with container as container:
-            # Give OpenSearch time to fully initialize
-            client = container.get_client()
+            client = container.get_client()  # wired up with the right port, creds, TLS settings
+            # optionally wait on cluster health
+            for _ in range(30):
+                try:
+                    health = client.cluster.health(wait_for_status="yellow", request_timeout=1)
+                    if health["status"] in ("yellow", "green"):
+                        break
+                except Exception:
+                    time.sleep(1)
+            else:
+                pytest.skip("OpenSearch did not start in time")
             yield client
 
 
