@@ -21,6 +21,103 @@ This project contains integration tests for OpenSearch, a powerful open-source s
 - OpenSearch 3.0.0
 - uv (Python package installer)
 
+## Setup and Running
+
+### Starting OpenSearch
+
+1. Start the OpenSearch and OpenSearch Dashboards containers:
+```bash
+make up
+```
+
+This will start:
+- OpenSearch on http://localhost:9200
+- OpenSearch Dashboards on http://localhost:5601
+
+To stop the containers:
+```bash
+make down
+```
+
+To clean up (stop and remove containers and volumes):
+```bash
+make clean
+```
+
+### Generating Mock Data
+
+The project includes a script to generate and index mock game account data. This is useful for testing and development.
+
+1. Configure the mock data generation in `.env`:
+```bash
+# for tesing with github actions
+GITHUB_ACTIONS='true'
+
+# OpenSearch Configuration
+# URL where OpenSearch is running (matches docker-compose.yaml)
+OPENSEARCH_HOST=http://localhost:9200
+
+# Authentication (leave blank since security plugin is disabled in docker-compose)
+OPENSEARCH_USER=
+OPENSEARCH_PASS=
+
+# Index Configuration
+# Name of the index to create/populate
+INDEX_NAME=game_accounts
+
+# Number of documents to generate and index
+NUM_DOCS=100000
+
+# Batch size for bulk indexing operations
+BATCH_SIZE=5000
+
+# Faker seed for reproducible fake data generation
+PYTHONHASHSEED=0
+
+# Set to 'true' to overwrite existing index, 'false' to error if index exists
+FORCE_OVERWRITE=true 
+```
+
+2. Generate and index the mock data:
+```bash
+make mock-data
+```
+
+This will:
+- Create the `game_accounts` index with appropriate mappings
+- Generate synthetic game account data
+- Index the data in batches
+- Show progress and results
+
+### Search Utilities
+
+The project includes a comprehensive `GameAccountSearcher` class for advanced search operations. Key features:
+
+- Support for multiple query types (match, term, prefix, wildcard, range)
+- Boolean query combinations (must, should, filter, must_not)
+- Range queries for dates and numbers
+- Aggregation support
+- Fuzzy matching
+- Boost factors for relevance tuning
+
+Example usage:
+```python
+from src.utils.search_utils import GameAccountSearcher, QueryType
+
+# Basic search
+searcher = GameAccountSearcher(client)
+results = searcher.add_query("player_tag", "ABC12", QueryType.TERM).search()
+
+# Complex search with multiple conditions
+results = (
+    searcher
+    .add_query("alliance_name", "dragon", QueryType.MATCH, fuzziness="AUTO")
+    .add_query("subscription_status", "premium", QueryType.TERM, context="filter")
+    .add_range_query("last_login", gte="now-30d/d")
+    .search(size=20, from_=0)
+)
+```
+
 ## Installation
 
 1. Clone the repository:
