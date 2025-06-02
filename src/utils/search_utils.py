@@ -24,6 +24,25 @@ class GameAccountSearcher:
     """
     Searcher class for game accounts that supports various query types
     and combinations.
+
+    You can add queries to the searcher in a variety of ways.
+    You can add a query to the searcher by calling the add_query method.
+    You can add a range query to the searcher by calling the add_range_query method.
+    You can clear the searcher by calling the clear method.
+    You can search the searcher by calling the search method.
+
+    The searcher will return a dictionary of results.
+
+    You can build a query by chaining the methods together.
+    For example:
+    searcher.add_query("player_tag", "ABC12", QueryType.TERM).add_range_query("last_login", gte="now-30d/d").search()
+
+    You can also build a query by calling the methods separately.
+    For example:
+    searcher.add_query("player_tag", "ABC12", QueryType.TERM)
+    searcher.add_range_query("last_login", gte="now-30d/d")
+    searcher.search()
+
     """
     
     def __init__(self, client: OpenSearch, index: str = "game_accounts"):
@@ -122,7 +141,28 @@ class GameAccountSearcher:
         lt: Optional[Any] = None,
         context: str = "must"
     ) -> 'GameAccountSearcher':
-        """Add a range query condition."""
+        """
+        Add a range query condition.
+
+        Args:
+            field: The field to search in
+            gte: Greater than or equal to
+            lte: Less than or equal to
+            gt: Greater than
+            lt: Less than
+            context: Where to add the query (must, should, filter, must_not)
+
+        Returns:
+            The searcher instance
+
+        Example usage:
+        searcher.add_range_query("last_login", gte="now-30d/d") # last login in the last 30 days
+        searcher.add_range_query("last_login", gte="2024-01-01", lte="2024-12-31") # last login between 2024-01-01 and 2024-12-31
+        searcher.add_range_query("last_login", gt="2024-01-01", lt="2024-12-31") # last login after 2024-01-01 and before 2024-12-31
+        searcher.add_range_query("last_login", gte="2024-01-01", lte="2024-12-31", context="filter") # last login between 2024-01-01 and 2024-12-31
+        searcher.add_range_query("last_login", gte="2024-01-01", lte="2024-12-31", context="filter", boost=2.0) # last login between 2024-01-01 and 2024-12-31 with a boost of 2.0
+        
+        """
         range_params = {}
         for param, value in [("gte", gte), ("lte", lte), ("gt", gt), ("lt", lt)]:
             if value is not None:
