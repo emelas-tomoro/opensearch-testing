@@ -419,10 +419,12 @@ async def main():
         print("\nSearch History:")
         for search in state.search_history:
             print(f"  Iteration {search['iteration']}: {search['hits']} hits ({search['trend']})")
+
+        return state
             
     except Exception as e:
         print(f"\nError: {str(e)}")
-        return
+        return state
 
 if __name__ == "__main__":
     asyncio.run(main())
