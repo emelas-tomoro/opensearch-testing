@@ -1,8 +1,9 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from src.utils.search_utils import GameAccountSearcher
+if TYPE_CHECKING:
+    from src.utils.search_utils import GameAccountSearcher
 
 class AccountParams(BaseModel):
     """Model representing account search parameters."""
@@ -37,7 +38,7 @@ class State(BaseModel):
             'exp_level': 5
         }
     )
-    searcher: Optional[GameAccountSearcher] = None
+    searcher: Optional[Any] = None
 
     model_config = {
         "arbitrary_types_allowed": True,

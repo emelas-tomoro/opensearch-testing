@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 from opensearchpy import OpenSearch
 from enum import Enum
+from src.config.base_models import SearchResult
 
 
 class QueryType(Enum):
@@ -249,12 +250,15 @@ class GameAccountSearcher:
 
         self.results = self.client.search(index=self.index, body=body)
         self.results['no_of_hits'] = self.results['hits']['total']['value']
-        # self.no_of_hits = self.results['hits']['total']['value']
 
         if self._is_found():
             self.results['found'] = True
         else:
             self.results['found'] = False
+
+        # Extract the source documents from hits
+        search_results = [hit['_source'] for hit in self.results['hits']['hits']]
+        self.results['results'] = search_results
             
         return self.results
 
