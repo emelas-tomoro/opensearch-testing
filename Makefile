@@ -12,7 +12,7 @@ clean: down
 
 # Mock data generation
 mock-data:
-	python src/make_index_mock.py
+	uv run -m src.mock_data.make_index_mock
 
 # Help command
 help:

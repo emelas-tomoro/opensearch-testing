@@ -73,40 +73,52 @@ def create_index_mapping(client: OpenSearch, index_name: str, force: bool = Fals
     
     mapping = {
         "settings": {
-            "index": {"number_of_shards": 3, "number_of_replicas": 1},
-            "analysis": {
-                "analyzer": {
-                    "player_tag_analyzer": {
-                        "type": "custom",
-                        "tokenizer": "keyword",
-                        "filter": ["lowercase"],
+            "index": {
+                "refresh_interval": "120s",
+                "number_of_shards": 16,
+                "number_of_replicas": 2,
+                "analysis": {
+                    "normalizer": {
+                        "name_normalizer": {
+                            "type": "custom",
+                            "filter": ["icu_folding", "lowercase"]
+                        }
+                    },
+                    "analyzer": {
+                        "name_tokenizer": {
+                            "type": "custom",
+                            "tokenizer": "icu_tokenizer",
+                            "filter": ["icu_folding", "apostrophe"]
+                        }
                     }
                 }
-            },
+            }
         },
         "mappings": {
             "dynamic": "strict",
             "properties": {
-                "account_id":        {"type": "keyword"},
-                "player_id":         {"type": "keyword"},
-                "player_tag":        {"type": "text", "analyzer": "player_tag_analyzer"},
-                "avatar":           {"type": "text"},
-                "alliance_name":     {"type": "text"},
-                "level":            {"type": "integer"},
-                # ── +11 useful recovery fields ──
-                "email":             {"type": "keyword"},
-                "phone_number":      {"type": "keyword"},
-                "country":           {"type": "keyword"},
-                "device_id":         {"type": "keyword"},
-                "registration_date": {"type": "date"},
-                "last_login":        {"type": "date"},
-                "ip_address":        {"type": "ip"},
-                "subscription_status": {"type": "keyword"},
-                "account_status":      {"type": "keyword"},
-                "preferred_language":  {"type": "keyword"},
-                "date_of_birth":       {"type": "date"},
-            },
-        },
+                "account_id": {"type": "long"},
+                "alliance_id": {"type": "long"},
+                "alliance_name": {"type": "text", "analyzer": "name_tokenizer"},
+                "alliance_name_history": {"type": "text", "analyzer": "name_tokenizer"},
+                "alliance_name_history_raw": {"type": "keyword"},
+                "alliance_name_raw": {"type": "keyword"},
+                "alliance_name_raw_lower": {"type": "keyword"},
+                "avatar_id": {"type": "long"},
+                "create_country": {"type": "keyword"},
+                "dirty": {"type": "boolean"},
+                "exp_level": {"type": "long"},
+                "name": {"type": "text", "analyzer": "name_tokenizer"},
+                "name_history": {"type": "text", "analyzer": "name_tokenizer"},
+                "name_history_raw": {"type": "keyword"},
+                "name_raw": {"type": "keyword"},
+                "name_raw_lower": {"type": "keyword"},
+                "name_raw_lower_rev": {"type": "keyword"},
+                "name_raw_rev": {"type": "keyword"},
+                "reputation": {"type": "long"},
+                "updated": {"type": "date"}
+            }
+        }
     }
     
     client.indices.create(index_name, body=mapping)
@@ -130,29 +142,34 @@ ALLIANCE_NAMES = [
 
 def generate_document(seq: int, index_name: str, fake: Faker) -> dict:
     """Generate a single document with synthetic data."""
-    reg = fake.date_time_between(start_date="-5y", end_date="now")
-    last = reg + timedelta(days=random.randint(0, 365 * 5))
+    name = fake.user_name()
+    alliance_name = random.choice(ALLIANCE_NAMES)
+    current_time = fake.date_time_between(start_date="-1y", end_date="now")
+    
     return {
         "_index": index_name,
         "_id": str(uuid.uuid4()),
         "_source": {
-            "account_id": f"ACC{seq:07d}",
-            "player_id": str(uuid.uuid4()),
-            "player_tag": f"#{random.randint(100000,9_999_999):07d}",
-            "avatar": fake.catch_phrase(),
-            "alliance_name": random.choice(ALLIANCE_NAMES),
-            "level": random.randint(1, 100),
-            "email": fake.email(),
-            "phone_number": fake.phone_number(),
-            "country": fake.country_code(),
-            "device_id": fake.uuid4(),
-            "registration_date": reg.isoformat(),
-            "last_login": last.isoformat(),
-            "ip_address": fake.ipv4_public(),
-            "subscription_status": random.choice(["free", "premium"]),
-            "account_status": random.choice(["active", "banned", "deleted"]),
-            "preferred_language": random.choice(["en", "es", "fr", "de", "pt", "ru", "zh"]),
-            "date_of_birth": str(fake.date_of_birth(minimum_age=13, maximum_age=60, tzinfo=None)),
+            "account_id": random.randint(100000000, 999999999),
+            "alliance_id": random.randint(100000000, 999999999),
+            "alliance_name": alliance_name,
+            "alliance_name_history": [],
+            "alliance_name_history_raw": [],
+            "alliance_name_raw": alliance_name,
+            "alliance_name_raw_lower": alliance_name.lower(),
+            "avatar_id": random.randint(100000000, 999999999),
+            "create_country": fake.country_code(),
+            "dirty": random.choice([True, False]),
+            "exp_level": random.randint(1, 100),
+            "name": name,
+            "name_history": [],
+            "name_history_raw": [],
+            "name_raw": name,
+            "name_raw_lower": name.lower(),
+            "name_raw_lower_rev": name.lower()[::-1],
+            "name_raw_rev": name[::-1],
+            "reputation": random.randint(0, 1000),
+            "updated": current_time.isoformat()
         },
     }
 

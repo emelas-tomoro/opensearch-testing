@@ -55,6 +55,8 @@ class GameAccountSearcher:
             "must_not": []
         }
         self._boost_factors = {}
+        self.no_of_hits = None
+        self.results = None
     
     def _get_client(self, client: OpenSearch) -> OpenSearch:
         """Get the client."""
@@ -73,7 +75,7 @@ class GameAccountSearcher:
         self,
         field: str,
         value: Any,
-        query_type: QueryType = QueryType.MATCH,
+        query_type: QueryType,
         boost: float = 1.0,
         fuzziness: Optional[str] = None,
         context: str = "must",
@@ -99,16 +101,17 @@ class GameAccountSearcher:
         return self
     
     def _build_query(
-        self,
-        field: str,
-        value: Any,
-        query_type: QueryType,
-        boost: float,
-        fuzziness: Optional[str],
+        self, 
+        field: str, 
+        value: Any, 
+        query_type: QueryType, 
+        boost: float, 
+        fuzziness: Optional[str], 
         fields: Optional[List[str]]
     ) -> Dict[str, Any]:
         """Build the appropriate query based on type and parameters."""
-        if query_type == QueryType.MULTI_MATCH:
+        
+        if query_type.value == QueryType.MULTI_MATCH.value:
             if not fields:
                 raise ValueError("fields must be provided for multi_match queries")
             return {
@@ -118,18 +121,25 @@ class GameAccountSearcher:
                     "boost": boost
                 }
             }
-            
-        # For term queries, we don't use the query parameter
-        if query_type == QueryType.TERM:
-            return {query_type.value: {field: value}}
-            
-        # For other query types (match, prefix, wildcard)
+        
+        # For term queries, use the value directly (no "query" wrapper)
+        if query_type.value == QueryType.TERM.value:
+            term_query = {query_type.value: {field: value}}
+            # Add boost if specified
+            if boost != 1.0:
+                term_query[query_type.value][field] = {
+                    "value": value,
+                    "boost": boost
+                }
+            return term_query
+        
+        # For other query types (match, prefix, wildcard), use "query" parameter
         query_params = {"query": value}
         if boost != 1.0:
             query_params["boost"] = boost
-        if fuzziness and query_type == QueryType.MATCH:
+        if fuzziness and query_type.value == QueryType.MATCH.value:
             query_params["fuzziness"] = fuzziness
-            
+        
         return {query_type.value: {field: query_params}}
     
     def add_range_query(
@@ -189,6 +199,19 @@ class GameAccountSearcher:
         self._boost_factors = {}
         return self
     
+    def get_no_of_hits(self) -> int:
+        """Get the number of hits."""
+        return self.results['hits']['total']['value']
+
+    def _is_found(self,) -> bool:
+        """
+        Calculate a bool value for if the query found the target account
+        """
+        if self.no_of_hits == 1:
+            return True
+        else:
+            return False
+
     def search(
         self,
         size: int = 10,
@@ -224,9 +247,16 @@ class GameAccountSearcher:
         if sort:
             body["sort"] = sort
 
-        # print(f'query: {body}')
+        self.results = self.client.search(index=self.index, body=body)
+        self.results['no_of_hits'] = self.results['hits']['total']['value']
+        # self.no_of_hits = self.results['hits']['total']['value']
+
+        if self._is_found():
+            self.results['found'] = True
+        else:
+            self.results['found'] = False
             
-        return self.client.search(index=self.index, body=body)
+        return self.results
 
     # def close(self) -> None:
     #     """Close the OpenSearch client connection."""
