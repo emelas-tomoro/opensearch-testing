@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
-
+import os
 from pydantic import BaseModel, Field
+
 
 if TYPE_CHECKING:
     from src.utils.search_utils import GameAccountSearcher
@@ -21,6 +22,8 @@ class SearchResult(BaseModel):
 
 class State(BaseModel):
     """State model for the account recovery graph."""
+    test: bool
+    index: str = Field(default=os.getenv('INDEX_NAME', 'game_accounts'))
     conversation_history: List[Dict[str, str]] = Field(default_factory=list)
     search_history: List[Dict[str, Any]] = Field(default_factory=list)
     current_params: AccountParams = Field(default_factory=AccountParams)

@@ -41,18 +41,6 @@ class PrepareMessageHistoryNode(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State]) -> "ExtractParamsNode":
         try:
             logger.info("Starting PrepareMessageHistoryNode execution")
-            
-            # Initialize searcher if not already done
-            if not ctx.state.searcher:
-                opensearch_client = OpenSearch(
-                    hosts=[{'host': 'localhost', 'port': 9200, 'scheme': 'http'}],
-                    http_auth=('admin', 'admin'),
-                    use_ssl=False,
-                    verify_certs=False,
-                    ssl_show_warn=False,
-                )
-                ctx.state.searcher = GameAccountSearcher(opensearch_client)
-            
             return ExtractParamsNode()
             
         except Exception as e:
@@ -76,7 +64,8 @@ class ExtractParamsNode(BaseNode[State]):
             
             # Extract parameters using OpenAI
             response = client.responses.parse(
-                model="gpt-4.1-mini",
+                # model="gpt-4.1-mini",
+                model='o4-mini',
                 input=messages,
                 text_format=AccountParams, 
             )
@@ -154,7 +143,7 @@ Please respond with a JSON object containing only the extracted parameters. Use 
 class SearchNode(BaseNode[State]):
     """Node for performing the search."""
     
-    async def run(self, ctx: GraphRunContext[State]) -> "ResponseNode | End":
+    async def run(self, ctx: GraphRunContext[State]) -> "GenerateLLMResponseNode | End":
         try:
             logger.info("Starting SearchNode execution")
             
@@ -187,16 +176,16 @@ class SearchNode(BaseNode[State]):
             
             # Check if we should stop
             if hits == 1 or hits <= ctx.state.min_threshold:
-                return ResponseNode()
+                return GenerateLLMResponseNode()
             
             # Increment iteration counter
             ctx.state.current_iteration += 1
             
             # Check if we've reached max iterations
             if ctx.state.current_iteration >= ctx.state.max_iterations:
-                return ResponseNode()
+                return GenerateLLMResponseNode()
             
-            return ResponseNode()
+            return GenerateLLMResponseNode()
             
         except Exception as e:
             logger.error(f"Unexpected error in SearchNode: {str(e)}", exc_info=True)
@@ -204,7 +193,7 @@ class SearchNode(BaseNode[State]):
     
     def _build_search_query(self, state: State) -> GameAccountSearcher:
         """Build search query based on current parameters."""
-        query_builder = GameAccountSearcher(state.searcher.client)
+        query_builder = GameAccountSearcher(index=state.index, test=state.test)
         
         params_dict = state.current_params.model_dump(exclude_none=True)
         
@@ -243,10 +232,42 @@ class SearchNode(BaseNode[State]):
             return "stable"
 
 @dataclass
+class UserInputNode(BaseNode[State]):
+    """Node for handling user input after LLM response."""
+    
+    async def run(self, ctx: GraphRunContext[State]) -> "ExtractParamsNode | End":
+        try:
+            logger.info("Starting UserInputNode execution")
+            
+            # Get user input
+            user_input = input("\nYour response: ").strip()
+            if not user_input:
+                logger.info("Empty input, stopping session")
+                return End(None)
+            
+            # Add user input to conversation history
+            ctx.state.conversation_history.append({
+                "role": "user",
+                "content": user_input
+            })
+            
+            # Print user's response
+            print("\n" + "="*50)
+            print("USER RESPONSE")
+            print("="*50)
+            print(user_input)
+            
+            return ExtractParamsNode()
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in UserInputNode: {str(e)}", exc_info=True)
+            return End(None)
+
+@dataclass
 class GenerateLLMResponseNode(BaseNode[State]):
     """Node for generating LLM responses based on search results and conversation history."""
     
-    async def run(self, ctx: GraphRunContext[State]) -> "End":
+    async def run(self, ctx: GraphRunContext[State]) -> "UserInputNode | End":
         try:
             logger.info("Starting GenerateLLMResponseNode execution")
             
@@ -291,12 +312,35 @@ Current known information:
             
             # Get response from LLM
             response = client.responses.create(
-                model="gpt-4.1-mini",
+                # model="gpt-4.1-mini",
+                model='o4-mini',
                 input=messages,
             )
             
             ctx.state.generated_response = response.output_text
+            
+            # Add the response to conversation history
+            ctx.state.conversation_history.append({
+                "role": "assistant",
+                "content": ctx.state.generated_response
+            })
+            
             logger.info("LLM response generated successfully")
+            
+            # Print the response
+            print("\n" + "="*50)
+            print("ASSISTANT RESPONSE")
+            print("="*50)
+            print(ctx.state.generated_response)
+            print("\nCurrent Parameters:")
+            print(json.dumps(ctx.state.current_params.model_dump(exclude_none=True), indent=2))
+            
+            # Check if we should continue searching
+            if (ctx.state.current_results.hits > 1 and 
+                ctx.state.current_results.hits > ctx.state.min_threshold and 
+                ctx.state.current_iteration < ctx.state.max_iterations):
+                return UserInputNode()
+            
             return End(None)
             
         except Exception as e:
@@ -350,6 +394,8 @@ async def process_account_recovery(
             PrepareMessageHistoryNode,
             ExtractParamsNode,
             SearchNode,
+            GenerateLLMResponseNode,
+            UserInputNode,
             ResponseNode
         ]
     )
@@ -365,7 +411,7 @@ async def process_account_recovery(
         return state, f"Error processing request: {str(e)}"
 
 # Example usage
-async def main():
+async def main(state: State = None):
     """Example usage of the account recovery graph."""
     print("\n🔍 Account Recovery Assistant")
     print("=" * 50)
@@ -386,12 +432,20 @@ async def main():
     
     print("\nProcessing your request...")
     
-    # Initialize state with first query
-    state = State(
-        conversation_history=[{"role": "user", "content": initial_query}],
-        min_threshold=5,
-        max_iterations=3
-    )
+    # Update existing state or create new one if none provided
+    if state is None:
+        state = State(
+            test=False,
+            index='game_accounts',
+            conversation_history=[{"role": "user", "content": initial_query}],
+            min_threshold=5,
+            max_iterations=3
+        )
+    # else:
+    #     # Update existing state
+    #     state.conversation_history = [{"role": "user", "content": initial_query}]
+    #     state.min_threshold = 5
+    #     state.max_iterations = 3
     
     # Create the graph
     graph = Graph[State, None](
@@ -399,65 +453,62 @@ async def main():
             PrepareMessageHistoryNode,
             ExtractParamsNode,
             SearchNode,
+            GenerateLLMResponseNode,
+            UserInputNode,
             ResponseNode
         ]
     )
     graph.mermaid_save("account_recovery_graph.png")
 
     # Run the graph
-    try:
+    await graph.run(start_node=PrepareMessageHistoryNode(), state=state)
+    
+    # Print initial response and parameters
+    print("\n" + "="*50)
+    print("ASSISTANT RESPONSE")
+    print("="*50)
+    print(state.generated_response)
+    print("\nCurrent Parameters:")
+    print(json.dumps(state.current_params.model_dump(exclude_none=True), indent=2))
+    
+    # Continue conversation until max iterations or success
+    while state.current_iteration < state.max_iterations:
+        if state.current_results and (state.current_results.hits == 1 or state.current_results.hits <= state.min_threshold):
+            break
+            
+        # Get user input for next iteration
+        user_input = input("\nYour response: ").strip()
+        if not user_input:
+            print("Empty input, stopping session.")
+            break
+            
+        # Add user input to conversation history
+        state.conversation_history.append({"role": "user", "content": user_input})
+        
+        # Run the graph again
         await graph.run(start_node=PrepareMessageHistoryNode(), state=state)
         
-        # Print initial response and parameters
+        # Print response and updated parameters
         print("\n" + "="*50)
         print("ASSISTANT RESPONSE")
         print("="*50)
         print(state.generated_response)
         print("\nCurrent Parameters:")
         print(json.dumps(state.current_params.model_dump(exclude_none=True), indent=2))
-        
-        # Continue conversation until max iterations or success
-        while state.current_iteration < state.max_iterations:
-            if state.current_results and (state.current_results.hits == 1 or state.current_results.hits <= state.min_threshold):
-                break
-                
-            # Get user input for next iteration
-            user_input = input("\nYour response: ").strip()
-            if not user_input:
-                print("Empty input, stopping session.")
-                break
-                
-            # Add user input to conversation history
-            state.conversation_history.append({"role": "user", "content": user_input})
-            
-            # Run the graph again
-            await graph.run(start_node=PrepareMessageHistoryNode(), state=state)
-            
-            # Print response and updated parameters
-            print("\n" + "="*50)
-            print("ASSISTANT RESPONSE")
-            print("="*50)
-            print(state.generated_response)
-            print("\nCurrent Parameters:")
-            print(json.dumps(state.current_params.model_dump(exclude_none=True), indent=2))
-        
-        # Print final summary
-        print("\n" + "="*50)
-        print("SESSION SUMMARY")
-        print("="*50)
-        print(f"Final Response: {state.generated_response}")
-        print(f"Total Iterations: {state.current_iteration}")
-        print(f"Final Parameters: {json.dumps(state.current_params.model_dump(exclude_none=True), indent=2)}")
-        
-        print("\nSearch History:")
-        for search in state.search_history:
-            print(f"  Iteration {search['iteration']}: {search['hits']} hits ({search['trend']})")
+    
+    # Print final summary
+    print("\n" + "="*50)
+    print("SESSION SUMMARY")
+    print("="*50)
+    print(f"Final Response: {state.generated_response}")
+    print(f"Total Iterations: {state.current_iteration}")
+    print(f"Final Parameters: {json.dumps(state.current_params.model_dump(exclude_none=True), indent=2)}")
+    
+    print("\nSearch History:")
+    for search in state.search_history:
+        print(f"  Iteration {search['iteration']}: {search['hits']} hits ({search['trend']})")
 
-        return state
-            
-    except Exception as e:
-        print(f"\nError: {str(e)}")
-        return state
+    return state
 
 if __name__ == "__main__":
     asyncio.run(main())

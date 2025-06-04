@@ -9,6 +9,25 @@ from datetime import datetime
 from opensearchpy import OpenSearch
 from enum import Enum
 from src.config.base_models import SearchResult
+from logging import INFO, Formatter, StreamHandler, getLogger
+
+# Configure logging
+logger = getLogger(__name__)
+
+# Remove any existing handlers to prevent duplicates
+for handler in logger.handlers[:]:
+    logger.removeHandler(handler)
+
+logger.setLevel(INFO)
+
+# Create console handler with a higher log level
+console_handler = StreamHandler()
+console_handler.setLevel(INFO)
+console_formatter = Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+console_handler.setFormatter(console_formatter)
+
+# Add the handler to the logger
+logger.addHandler(console_handler)
 
 
 class QueryType(Enum):
@@ -46,8 +65,9 @@ class GameAccountSearcher:
 
     """
     
-    def __init__(self, client: OpenSearch, index: str = "game_accounts"):
-        self.client = self._get_client(client)
+    def __init__(self, index: str = "game_accounts", test: bool = True):
+        self.test = test
+        self.client = self._get_client()
         self.index = index
         self._query_parts = {
             "must": [],
@@ -59,16 +79,31 @@ class GameAccountSearcher:
         self.no_of_hits = None
         self.results = None
     
-    def _get_client(self, client: OpenSearch) -> OpenSearch:
+    def _get_client(self) -> OpenSearch:
         """Get the client."""
 
-        client = OpenSearch(
-            hosts=[{'host': 'localhost', 'port': 9200, 'scheme': 'http'}],  # Explicitly use HTTP
-            http_auth=('admin', 'admin'),  # Default credentials for GitHub Actions OpenSearch
-            use_ssl=False,
-            verify_certs=False,
-            ssl_show_warn=False,
-        )
+        if self.test is True:
+            print('testing mode: True')
+            client = OpenSearch(
+                hosts=[{'host': 'localhost', 'port': 9200, 'scheme': 'http'}],  # Explicitly use HTTP
+                http_auth=('admin', 'admin'),  # Default credentials for GitHub Actions OpenSearch
+                use_ssl=False,
+                verify_certs=False,
+                ssl_show_warn=False,
+            )
+        else:
+            print('testing mode: False')
+        # Create the client with SSL/TLS and hostname verification disabled.
+            client = OpenSearch(
+                hosts = [{'host': 'localhost', 'port': 4434}],
+                http_compress = True, # enables gzip compression for request bodies
+                use_ssl = True,
+                verify_certs = False,
+                ssl_assert_hostname = False,
+                ssl_show_warn = False
+            )
+
+        print(f'client initialised: {client}')
 
         return client
     
@@ -248,6 +283,10 @@ class GameAccountSearcher:
         if sort:
             body["sort"] = sort
 
+        print(f'index: {self.index}')
+        print(f'body: {body}')
+        print(f'client: {self.client}')
+
         self.results = self.client.search(index=self.index, body=body)
         self.results['no_of_hits'] = self.results['hits']['total']['value']
 
@@ -268,155 +307,155 @@ class GameAccountSearcher:
     #         self.client.close()
 
 
-# Example usage functions that demonstrate the new searcher
-def search_by_player_tag(client: OpenSearch, player_tag: str, index: str = "game_accounts") -> Dict[str, Any]:
-    """Search for a player by their exact tag."""
-    searcher = GameAccountSearcher(client, index)
-    return searcher.add_query(
-        "player_tag",
-        player_tag.lower(),
-        query_type=QueryType.TERM
-    ).search()
+# # Example usage functions that demonstrate the new searcher
+# def search_by_player_tag(client: OpenSearch, player_tag: str, index: str = "game_accounts") -> Dict[str, Any]:
+#     """Search for a player by their exact tag."""
+#     searcher = GameAccountSearcher(client, index)
+#     return searcher.add_query(
+#         "player_tag",
+#         player_tag.lower(),
+#         query_type=QueryType.TERM
+#     ).search()
 
 
-def search_by_alliance(client: OpenSearch, alliance_name: str, index: str = "game_accounts") -> Dict[str, Any]:
-    """Search for players in an alliance using fuzzy matching."""
-    searcher = GameAccountSearcher(client, index)
-    return searcher.add_query(
-        "alliance_name",
-        alliance_name,
-        query_type=QueryType.MATCH,
-        fuzziness="AUTO"
-    ).search()
+# def search_by_alliance(client: OpenSearch, alliance_name: str, index: str = "game_accounts") -> Dict[str, Any]:
+#     """Search for players in an alliance using fuzzy matching."""
+#     searcher = GameAccountSearcher(client, index)
+#     return searcher.add_query(
+#         "alliance_name",
+#         alliance_name,
+#         query_type=QueryType.MATCH,
+#         fuzziness="AUTO"
+#     ).search()
 
 
-def search_active_premium_players(
-    client: OpenSearch,
-    min_registration_date: Optional[str] = None,
-    index: str = "game_accounts"
-) -> Dict[str, Any]:
-    """Search for active premium players."""
-    searcher = GameAccountSearcher(client, index)
-    searcher.add_query("subscription_status", "premium", query_type=QueryType.TERM)
-    searcher.add_query("account_status", "active", query_type=QueryType.TERM)
+# def search_active_premium_players(
+#     client: OpenSearch,
+#     min_registration_date: Optional[str] = None,
+#     index: str = "game_accounts"
+# ) -> Dict[str, Any]:
+#     """Search for active premium players."""
+#     searcher = GameAccountSearcher(client, index)
+#     searcher.add_query("subscription_status", "premium", query_type=QueryType.TERM)
+#     searcher.add_query("account_status", "active", query_type=QueryType.TERM)
     
-    if min_registration_date:
-        searcher.add_range_query(
-            "registration_date",
-            gte=min_registration_date
-        )
+#     if min_registration_date:
+#         searcher.add_range_query(
+#             "registration_date",
+#             gte=min_registration_date
+#         )
         
-    return searcher.search()
+#     return searcher.search()
 
 
-def search_by_country_and_language(
-    client: OpenSearch,
-    country: str,
-    language: str,
-    index: str = "game_accounts"
-) -> Dict[str, Any]:
-    """Search for players from a specific country who speak a specific language."""
-    searcher = GameAccountSearcher(client, index)
-    searcher.add_query("country", country, query_type=QueryType.TERM, context="filter")
-    searcher.add_query("preferred_language", language, query_type=QueryType.TERM, context="filter")
-    return searcher.search()
+# def search_by_country_and_language(
+#     client: OpenSearch,
+#     country: str,
+#     language: str,
+#     index: str = "game_accounts"
+# ) -> Dict[str, Any]:
+#     """Search for players from a specific country who speak a specific language."""
+#     searcher = GameAccountSearcher(client, index)
+#     searcher.add_query("country", country, query_type=QueryType.TERM, context="filter")
+#     searcher.add_query("preferred_language", language, query_type=QueryType.TERM, context="filter")
+#     return searcher.search()
 
 
-def search_recent_players(
-    client: OpenSearch,
-    days: int = 30,
-    index: str = "game_accounts"
-) -> Dict[str, Any]:
-    """Search for players who have logged in within the last N days."""
-    searcher = GameAccountSearcher(client, index)
-    searcher.add_range_query(
-        "last_login",
-        gte=f"now-{days}d/d"
-    )
-    return searcher.search()
+# def search_recent_players(
+#     client: OpenSearch,
+#     days: int = 30,
+#     index: str = "game_accounts"
+# ) -> Dict[str, Any]:
+#     """Search for players who have logged in within the last N days."""
+#     searcher = GameAccountSearcher(client, index)
+#     searcher.add_range_query(
+#         "last_login",
+#         gte=f"now-{days}d/d"
+#     )
+#     return searcher.search()
 
 
-def search_by_device_id(
-    client: OpenSearch,
-    device_id: str,
-    index: str = "game_accounts"
-) -> Dict[str, Any]:
-    """Search for accounts associated with a specific device ID."""
-    searcher = GameAccountSearcher(client, index)
-    return searcher.add_query(
-        "device_id",
-        device_id,
-        query_type=QueryType.TERM
-    ).search()
+# def search_by_device_id(
+#     client: OpenSearch,
+#     device_id: str,
+#     index: str = "game_accounts"
+# ) -> Dict[str, Any]:
+#     """Search for accounts associated with a specific device ID."""
+#     searcher = GameAccountSearcher(client, index)
+#     return searcher.add_query(
+#         "device_id",
+#         device_id,
+#         query_type=QueryType.TERM
+#     ).search()
 
 
-def search_by_email_or_phone(
-    client: OpenSearch,
-    email: Optional[str] = None,
-    phone: Optional[str] = None,
-    index: str = "game_accounts"
-) -> Dict[str, Any]:
-    """Search for accounts by email and/or phone number."""
-    if not email and not phone:
-        raise ValueError("Either email or phone must be provided")
+# def search_by_email_or_phone(
+#     client: OpenSearch,
+#     email: Optional[str] = None,
+#     phone: Optional[str] = None,
+#     index: str = "game_accounts"
+# ) -> Dict[str, Any]:
+#     """Search for accounts by email and/or phone number."""
+#     if not email and not phone:
+#         raise ValueError("Either email or phone must be provided")
         
-    searcher = GameAccountSearcher(client, index)
-    if email:
-        searcher.add_query("email", email, query_type=QueryType.TERM, context="should")
-    if phone:
-        searcher.add_query("phone_number", phone, query_type=QueryType.TERM, context="should")
+#     searcher = GameAccountSearcher(client, index)
+#     if email:
+#         searcher.add_query("email", email, query_type=QueryType.TERM, context="should")
+#     if phone:
+#         searcher.add_query("phone_number", phone, query_type=QueryType.TERM, context="should")
         
-    return searcher.search(min_should_match=1)
+#     return searcher.search(min_should_match=1)
 
 
-def search_by_age_range(
-    client: OpenSearch,
-    min_age: int,
-    max_age: int,
-    index: str = "game_accounts"
-) -> Dict[str, Any]:
-    """Search for players within a specific age range."""
-    now = datetime.now()
-    max_date = (now.replace(year=now.year - min_age)).strftime("%Y-%m-%d")
-    min_date = (now.replace(year=now.year - max_age)).strftime("%Y-%m-%d")
+# def search_by_age_range(
+#     client: OpenSearch,
+#     min_age: int,
+#     max_age: int,
+#     index: str = "game_accounts"
+# ) -> Dict[str, Any]:
+#     """Search for players within a specific age range."""
+#     now = datetime.now()
+#     max_date = (now.replace(year=now.year - min_age)).strftime("%Y-%m-%d")
+#     min_date = (now.replace(year=now.year - max_age)).strftime("%Y-%m-%d")
     
-    searcher = GameAccountSearcher(client, index)
-    searcher.add_range_query(
-        "date_of_birth",
-        gte=min_date,
-        lte=max_date
-    )
-    return searcher.search()
+#     searcher = GameAccountSearcher(client, index)
+#     searcher.add_range_query(
+#         "date_of_birth",
+#         gte=min_date,
+#         lte=max_date
+#     )
+#     return searcher.search()
 
 
-def search_with_aggregations(
-    client: OpenSearch,
-    index: str = "game_accounts"
-) -> Dict[str, Any]:
-    """Get aggregated statistics about the player base."""
-    searcher = GameAccountSearcher(client, index)
-    body = {
-        "size": 0,
-        "aggs": {
-            "subscription_stats": {
-                "terms": {"field": "subscription_status"}
-            },
-            "account_status_stats": {
-                "terms": {"field": "account_status"}
-            },
-            "language_stats": {
-                "terms": {"field": "preferred_language"}
-            },
-            "avg_account_age": {
-                "avg": {
-                    "script": {
-                        "source": "ChronoUnit.DAYS.between(doc['registration_date'].value, doc['last_login'].value)"
-                    }
-                }
-            }
-        }
-    }
-    return client.search(index=index, body=body)
+# def search_with_aggregations(
+#     client: OpenSearch,
+#     index: str = "game_accounts"
+# ) -> Dict[str, Any]:
+#     """Get aggregated statistics about the player base."""
+#     searcher = GameAccountSearcher(client, index)
+#     body = {
+#         "size": 0,
+#         "aggs": {
+#             "subscription_stats": {
+#                 "terms": {"field": "subscription_status"}
+#             },
+#             "account_status_stats": {
+#                 "terms": {"field": "account_status"}
+#             },
+#             "language_stats": {
+#                 "terms": {"field": "preferred_language"}
+#             },
+#             "avg_account_age": {
+#                 "avg": {
+#                     "script": {
+#                         "source": "ChronoUnit.DAYS.between(doc['registration_date'].value, doc['last_login'].value)"
+#                     }
+#                 }
+#             }
+#         }
+#     }
+#     return client.search(index=index, body=body)
 
 ### Example usage ###
 
