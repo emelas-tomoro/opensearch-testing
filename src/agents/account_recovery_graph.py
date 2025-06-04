@@ -62,22 +62,26 @@ class ExtractParamsNode(BaseNode[State]):
             messages = [{"role": "system", "content": system_prompt}]
             messages.extend(ctx.state.conversation_history)
             
+            # Check if there's any actual user input to process
+            has_user_input = any(msg.get("content") for msg in ctx.state.conversation_history if msg.get("role") == "user")
+            
+            if not has_user_input:
+                logger.info("No user input to process, skipping parameter extraction")
+                return SearchNode()
+            
+            logger.info(f"Messages being sent to API: {json.dumps(messages, indent=2)}")
+            
             # Extract parameters using OpenAI
             response = client.responses.parse(
-                # model="gpt-4.1-mini",
-                model='o4-mini',
+                model="gpt-4.1-mini",
+                # model='o4-mini',
                 input=messages,
                 text_format=AccountParams, 
             )
             
             # Parse the response
-            try:
-                params_dict = json.loads(response.output_text)
-                new_params = AccountParams(**params_dict)
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.error(f"Error parsing parameters: {str(e)}")
-                return End(None)
-            
+            new_params = response.output_parsed
+
             # Merge with existing parameters
             self._merge_params(ctx.state, new_params)
             
@@ -312,8 +316,8 @@ Current known information:
             
             # Get response from LLM
             response = client.responses.create(
-                # model="gpt-4.1-mini",
-                model='o4-mini',
+                model="gpt-4.1-mini",
+                # model='o4-mini',
                 input=messages,
             )
             
@@ -441,11 +445,11 @@ async def main(state: State = None):
             min_threshold=5,
             max_iterations=3
         )
-    # else:
-    #     # Update existing state
-    #     state.conversation_history = [{"role": "user", "content": initial_query}]
-    #     state.min_threshold = 5
-    #     state.max_iterations = 3
+    else:
+        # Update existing state
+        state.conversation_history = [{"role": "user", "content": initial_query}]
+        state.min_threshold = 5
+        state.max_iterations = 3
     
     # Create the graph
     graph = Graph[State, None](
