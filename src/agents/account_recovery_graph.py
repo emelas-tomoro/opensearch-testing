@@ -243,51 +243,84 @@ class SearchNode(BaseNode[State]):
             return "stable"
 
 @dataclass
+class GenerateLLMResponseNode(BaseNode[State]):
+    """Node for generating LLM responses based on search results and conversation history."""
+    
+    async def run(self, ctx: GraphRunContext[State]) -> "End":
+        try:
+            logger.info("Starting GenerateLLMResponseNode execution")
+            
+            if not ctx.state.current_results:
+                ctx.state.generated_response = "I couldn't find any results matching your criteria."
+                return End(None)
+            
+            # Build system prompt
+            system_prompt = f"""
+You are a game account search assistant helping a user find their missing account.
+Your goal is to provide helpful and conversational responses based on the search results.
+
+Current search results:
+- Number of hits: {ctx.state.current_results.hits}
+- Trend: {ctx.state.current_results.trend}
+- Current iteration: {ctx.state.current_iteration + 1}/{ctx.state.max_iterations}
+
+Instructions:
+1. If exactly one result is found, announce success and show the account details
+2. If results are below threshold, show all potential matches
+3. If results are decreasing significantly, ask for more specific information
+4. If max iterations reached, show final results
+5. Otherwise, ask for more information to narrow down the search
+6. Be conversational and helpful
+7. Format account details in a readable way
+
+Current known information:
+{json.dumps(ctx.state.current_params.model_dump(exclude_none=True), indent=2)}
+"""
+
+            # Build conversation context
+            messages = [{"role": "system", "content": system_prompt}]
+            messages.extend(ctx.state.conversation_history)
+            
+            # Add search results to context
+            if ctx.state.current_results.results:
+                results_context = "Search results:\n" + json.dumps(
+                    [r['_source'] for r in ctx.state.current_results.results],
+                    indent=2
+                )
+                messages.append({"role": "system", "content": results_context})
+            
+            # Get response from LLM
+            response = client.responses.create(
+                model="gpt-4.1-mini",
+                input=messages,
+            )
+            
+            ctx.state.generated_response = response.output_text
+            logger.info("LLM response generated successfully")
+            return End(None)
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in GenerateLLMResponseNode: {str(e)}", exc_info=True)
+            return End(None)
+
+@dataclass
 class ResponseNode(BaseNode[State]):
-    """Node for generating the response."""
+    """Node for handling the response generation process."""
     
     async def run(self, ctx: GraphRunContext[State]) -> "End":
         try:
             logger.info("Starting ResponseNode execution")
             
-            # Generate response based on current state
-            response = self._generate_response(ctx.state)
+            # Use GenerateLLMResponseNode to generate the response
+            llm_node = GenerateLLMResponseNode()
+            await llm_node.run(ctx)
             
-            # Store response in state
-            ctx.state.generated_response = response
-            
-            logger.info("Response generated successfully")
+            logger.info("Response generation completed successfully")
             return End(None)
             
         except Exception as e:
             logger.error(f"Unexpected error in ResponseNode: {str(e)}", exc_info=True)
             return End(None)
-    
-    def _generate_response(self, state: State) -> str:
-        """Generate response based on current state."""
-        if not state.current_results:
-            return "I couldn't find any results matching your criteria."
-        
-        hits = state.current_results.hits
-        
-        if hits == 1:
-            return "I found your account! Here are the details:\n" + \
-                   json.dumps(state.current_results.results[0]['_source'], indent=2)
-        
-        if hits <= state.min_threshold:
-            return f"I found {hits} potential matches. Here are the results:\n" + \
-                   json.dumps([r['_source'] for r in state.current_results.results], indent=2)
-        
-        if state.current_iteration >= state.max_iterations:
-            return f"I've reached the maximum number of iterations. Here are the {hits} results I found:\n" + \
-                   json.dumps([r['_source'] for r in state.current_results.results], indent=2)
-        
-        # Generate next question based on current results
-        trend = state.current_results.trend
-        if trend == "decreasing significantly":
-            return f"⚠️ Results dropped to {hits}. Could you provide more specific information about your account?"
-        
-        return f"I found {hits} results. Could you provide more information to help narrow down the search?"
 
 async def process_account_recovery(
     initial_query: str,
